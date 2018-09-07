@@ -1,3 +1,3 @@
-from .main import main
+from ct_addons.main import main
 
 main()

@@ -3,6 +3,7 @@ import json
 import struct
 import threading
 import select
+import time
 import logging
 
 
@@ -15,7 +16,7 @@ class CTSocketClient(object):
 
     def __init__(self, client_id, event_types,
                  on_config_enabled, on_config_disabled,
-                 socket_path=None):
+                 socket_path=None, bufsize=10):
         self.client_id = client_id
         self.event_types = event_types
         self.socket_path = socket_path or self.CT_AGENT_SOCKET_PATH
@@ -25,6 +26,9 @@ class CTSocketClient(object):
         self._interrupt_socks = socket.socketpair()
         self._thread = None
         self._stopped = threading.Event()
+        self._connected = threading.Event()
+        self._buffer = []
+        self.bufsize = 10
 
         # lock guards concurrent access on socket when reconnecting
         self._lock = threading.RLock()
@@ -42,25 +46,40 @@ class CTSocketClient(object):
 
     def stop(self):
         self._stopped.set()
-        self._interrupt_socks[1].write('\0')
+        self._interrupt_socks[1].send('\0')
         self._thread.join()
-        self._interrupt_socks[0].read(1)
+        self._interrupt_socks[0].recv(1)
         self._thread = None
 
     def _reconnect(self):
-        with self._lock:
-            self._close_if_open()
-            self._sock = socket.socket(socket.AF_UNIX)
-            self._sock.setblocking(0)
-            self._sock.connect(self.socket_path)
+        while not self._stopped.isSet():
+            with self._lock:
+                self._close_if_open()
+                self._sock = socket.socket(socket.AF_UNIX)
+                self._sock.setblocking(0)
+            try:
+                self._sock.connect(self.socket_path)
+            except socket.error as exc:
+                log.error('%r: error while connecting: %r; backoff=10sec', self, exc)
+                self._stopped.wait(10)
+            else:
+                self._connected.set()
+                log.info('%r: connected', self)
+                return
 
     def _send(self, contents):
         with self._lock:
-            if self._sock is None:
-                raise RuntimeError("Not connected")
-            data = json.dumps(contents)
-            header = struct.pack('>I', len(data))
-            self._sock.send(header + data)
+            if not self._connected.isSet():
+                log.warning('%r: not connected, buffering message: %s', self, contents)
+                self._buffer.append(contents)
+                if len(self._buffer) > self.bufsize:
+                    removed = self._buffer.pop(0)
+                    log.warning('%r: dropping message from buffer: %s', self, removed)
+            else:
+                log.info('%r: sending message: %s', self, contents)
+                data = json.dumps(contents)
+                header = struct.pack('>I', len(data))
+                self._sock.send(header + data)
 
     def _send_hello(self):
         self._send({
@@ -71,13 +90,15 @@ class CTSocketClient(object):
     def _loop(self):
         while not self._stopped.isSet():
             self._reconnect()
-            self._send_hello()
-
+            if self._stopped.isSet():
+                return
             try:
+                self._send_hello()
+                self._send_buffered()
                 while not self._stopped.isSet():
                     self._process_one(self._read_one())
             except socket.error as err:
-                log.error('Error while reading message: %s', err)
+                log.error('%r: Error while reading message: %s', self, err)
             except _ReadInterrupted:
                 self._close_if_open()
 
@@ -95,10 +116,11 @@ class CTSocketClient(object):
             ], [], [])
             if self._interrupt_socks[0].fileno() in rlist:
                 raise _ReadInterrupted
-            result += self._sock.read(length - len(result))
+            result += self._sock.recv(length - len(result))
         return result
 
     def _process_one(self, contents):
+        log.info('%r: incoming: %s', self, contents)
         cfg_enabled = contents['config_state_enabled']
         event_type = contents['event_type']
         options = contents['options']
@@ -110,11 +132,24 @@ class CTSocketClient(object):
             if callable(self.on_config_disabled):
                 self.on_config_disabled(event_type, options)
 
+    def _send_buffered(self):
+        with self._lock:
+            log.info('%r: sending buffered messages')
+            n_messages = len(self._buffer)
+            for _ in range(n_messages):
+                msg = self._buffer.pop(0)
+                self._send(msg)
+
     def _close_if_open(self):
         with self._lock:
             if self._sock is not None:
                 self._sock.close()
                 self._sock = None
+                log.info('%r: closed', self)
+        self._connected.clear()
+
+    def __repr__(self):
+        return '<id="{}" addr="{}">'.format(self.client_id, self.socket_path)
 
 
 class _ReadInterrupted(Exception):
