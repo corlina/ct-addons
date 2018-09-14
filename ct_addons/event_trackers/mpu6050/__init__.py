@@ -4,6 +4,7 @@ import time
 import socket
 import struct
 import logging
+import math
 from ct_addons.event_trackers.mpu6050 import data_source, motion_tracker
 
 
@@ -31,24 +32,62 @@ class Mpu6050EventTracker(object):
         self._lock = threading.Lock()
         self._config_state = False
         self._max_angle_deviation = 30.0
-        self._is_in_epoch_condition = False
+        self._max_lateral_movement = 0.2
+        self._min_temp = 15
+        self._max_temp = 45
+        self._is_in_epoch_condition = {
+            'ORIENTATION': False,
+            'MOVEMENT': False,
+            'TEMPERATURE': False,
+        }
 
     def _react_for_epoch_condition(self,
-                          accx, accy, accz,
-                          gyrox, gyroy, gyroz,
-                          anglex, angley, anglez):
+                                   accx, accy, accz,
+                                   gyrox, gyroy, gyroz,
+                                   temp,
+                                   anglex, angley, anglez,
+                                   latx, laty, latz):
         with self._lock:
             if self._config_state:
                 return
+        self._react_for_movement_epoch_condition(latx, laty, latz)
+        self._react_for_orientation_epoch_condition(anglex, angley, anglez)
+        self._react_for_temperature_epoch_condition(temp)
+
+    def _react_for_orientation_epoch_condition(self, anglex, angley, anglez):
         maxdev = max(abs(anglex), abs(angley), abs(anglez))
         now_in_condition = maxdev > self._max_angle_deviation
-        need_epoch = now_in_condition != self._is_in_epoch_condition
+        need_epoch = now_in_condition != self._is_in_epoch_condition['ORIENTATION']
         if need_epoch:
-            log.info('met Epoch condition: %s', 'IN' if now_in_condition else 'OUT')
+            log.info('met ORIENTATION Epoch condition: %s',
+                     'IN' if now_in_condition else 'OUT')
             if now_in_condition:
                 data = {'x': anglex, 'y': angley, 'z': anglez}
                 self.client.send_event('ORIENTATION', data)
-        self._is_in_epoch_condition = now_in_condition
+        self._is_in_epoch_condition['ORIENTATION'] = now_in_condition
+
+    def _react_for_movement_epoch_condition(self, latx, laty, latz):
+        movement = math.sqrt(latx**2 + laty**2 + latz**2)
+        now_in_condition = movement > self._max_lateral_movement
+        need_epoch = now_in_condition != self._is_in_epoch_condition['MOVEMENT']
+        if need_epoch:
+            log.info('met MOVEMENT Epoch condition: %s',
+                     'IN' if now_in_condition else 'OUT')
+            if now_in_condition:
+                data = {'x': latx, 'y': laty, 'z': latz}
+                self.client.send_event('MOVEMENT', data)
+        self._is_in_epoch_condition['MOVEMENT'] = now_in_condition
+
+    def _react_for_temperature_epoch_condition(self, temp):
+        now_in_condition = not (self._min_temp <= temp <= self._max_temp)
+        need_epoch = now_in_condition != self._is_in_epoch_condition['TEMPERATURE']
+        if need_epoch:
+            log.info('met TEMPERATURE Epoch condition: %s',
+                     'IN' if now_in_condition else 'OUT')
+            if now_in_condition:
+                data = {'temp': temp}
+                self.client.send_event('TEMPERATURE', data)
+        self._is_in_epoch_condition['TEMPERATURE'] = now_in_condition
 
     def run(self):
         try:

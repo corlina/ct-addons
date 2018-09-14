@@ -14,7 +14,8 @@ def mpu6050_data_generator(dt, stopped):
         start = time.time()
         accel = sensor.get_accel_data()
         gyro = sensor.get_gyro_data()
-        item = accel['x'], accel['y'], accel['z'], gyro['x'], gyro['y'], gyro['z']
+        temp = sensor.get_temp()
+        item = accel['x'], accel['y'], accel['z'], gyro['x'], gyro['y'], gyro['z'], temp
         yield item
         duration = time.time() - start
         if dt > duration:
@@ -26,11 +27,11 @@ def motiontracker_data_generator(mpu_generator, tracker, calibrate_n=0):
         tracker.start_calibration()
         for _ in range(calibrate_n):
             item = next(mpu_generator)
-            tracker.add_data(*item)
+            tracker.add_data(*item[:-1])  # last item is temperature
         tracker.finish_calibration()
     for item in mpu_generator:
-        tracker.add_data(*item)
-        yield item + tracker.angles
+        tracker.add_data(*item[:-1])  # last item is temperature
+        yield item + tracker.angles + tracker.coordinates
 
 
 class DataStreamer(object):

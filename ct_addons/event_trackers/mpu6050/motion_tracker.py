@@ -95,6 +95,10 @@ class MotionTracker(object):
     def angles(self):
         return self.tracked_ax, self.tracked_ay, self.tracked_az
 
+    @property
+    def coordinates(self):
+        return 0.0, 0.0, 0.0
+
 
 def dist(*args):
     return sqrt(sum(x*x for x in args))
