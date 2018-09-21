@@ -24,11 +24,13 @@ def mpu6050_data_generator(dt, stopped):
 
 def motiontracker_data_generator(mpu_generator, tracker, calibrate_n=0):
     if calibrate_n > 0:
+        log.info('starting calibration, don\'t move the device...')
         tracker.start_calibration()
         for _ in range(calibrate_n):
             item = next(mpu_generator)
             tracker.add_data(*item[:-1])  # last item is temperature
         tracker.finish_calibration()
+        log.info('calibration finished')
     for item in mpu_generator:
         tracker.add_data(*item[:-1])  # last item is temperature
         yield item + tracker.angles + tracker.coordinates

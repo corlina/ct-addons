@@ -15,14 +15,14 @@ class Mpu6050EventTracker(object):
 
     EVENT_TYPE = 'corlina.mpu6050'
 
-    def __init__(self, client, run_server_at_port=None):
+    def __init__(self, client, accel_offsets, run_server_at_port=None):
         self.client = client
         self._stopped = threading.Event()
         generator = data_source.mpu6050_data_generator(0.011, self._stopped)
         generator = data_source.dump_to_file(generator, 'data.txt', 1000)
         generator = data_source.motiontracker_data_generator(
             generator,
-            motion_tracker.MotionTracker(0.5, 0.011),
+            motion_tracker.MotionTracker(0.5, 0.011, accel_offsets=accel_offsets),
             calibrate_n=300,
         )
         self.streamer = data_source.DataStreamer(generator)
