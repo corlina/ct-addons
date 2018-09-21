@@ -1,3 +1,10 @@
+# Build from sources
+
+Run from repository root:
+```python setup.py```
+
+Result of build is put to file `ct_addons.zip`.
+
 # Installation
 
 Requirements:
@@ -12,7 +19,7 @@ Installation:
 # Usage
 Run the daemon:
 
-```python ct_addons.zip --client-id <client-id> mpu6050```
+```sudo python ct_addons.zip --client-id <client-id> mpu6050```
 
 Client ID currently can be arbitrary string.
 

@@ -106,9 +106,9 @@ class MotionTracker(object):
     @property
     def angles(self):
         return (
-            _angle_between(self.basis_x, self._init_basis_x),
-            _angle_between(self.basis_y, self._init_basis_y),
-            _angle_between(self.basis_z, self._init_basis_z),
+            _angle_between(self.basis_x, self._init_basis_x) * _RAD2DEG,
+            _angle_between(self.basis_y, self._init_basis_y) * _RAD2DEG,
+            _angle_between(self.basis_z, self._init_basis_z) * _RAD2DEG,
         )
 
     @property
