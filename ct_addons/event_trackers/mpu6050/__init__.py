@@ -35,6 +35,10 @@ class Mpu6050EventTracker(object):
         self._max_lateral_movement = 0.2
         self._min_temp = 15
         self._max_temp = 45
+        self._temp_blind_zone = 1
+        self._temp_min_histeresis_state = 0
+        self._temp_max_histeresis_state = 0
+        assert 2 * self._temp_blind_zone < self._max_temp - self._min_temp
         self._is_in_epoch_condition = {
             'ORIENTATION': False,
             'MOVEMENT': False,
@@ -79,14 +83,25 @@ class Mpu6050EventTracker(object):
         self._is_in_epoch_condition['MOVEMENT'] = now_in_condition
 
     def _react_for_temperature_epoch_condition(self, temp):
-        now_in_condition = not (self._min_temp <= temp <= self._max_temp)
-        need_epoch = now_in_condition != self._is_in_epoch_condition['TEMPERATURE']
-        if need_epoch:
+        min_in_condition = temp < self._min_temp + self._temp_min_histeresis_state
+        max_in_condition = temp > self._max_temp + self._temp_max_histeresis_state
+        now_in_condition = min_in_condition or max_in_condition
+        condition_changed = now_in_condition != self._is_in_epoch_condition['TEMPERATURE']
+        if condition_changed:
             log.info('met TEMPERATURE Epoch condition: %s',
                      'IN' if now_in_condition else 'OUT')
             if now_in_condition:
                 data = {'temp': temp}
                 self.client.send_event('TEMPERATURE', data)
+            if max_in_condition:
+                self._temp_min_histeresis_state = -self._temp_blind_zone
+                self._temp_max_histeresis_state = -self._temp_blind_zone
+            elif min_in_condition:
+                self._temp_min_histeresis_state = +self._temp_blind_zone
+                self._temp_max_histeresis_state = +self._temp_blind_zone
+            else:
+                self._temp_min_histeresis_state = -self._temp_blind_zone
+                self._temp_max_histeresis_state = +self._temp_blind_zone
         self._is_in_epoch_condition['TEMPERATURE'] = now_in_condition
 
     def run(self):

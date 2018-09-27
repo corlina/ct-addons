@@ -101,7 +101,7 @@ class MotionTracker(object):
                 _mul(self.velocity, dt / 2),
                 _mul(new_velocity, dt / 2),
             )
-            self.velocity = _mul(new_velocity, dist(*new_velocity) * 0.98)
+            self.velocity = _mul(new_velocity, 0.99)
 
     @property
     def angles(self):

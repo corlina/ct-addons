@@ -2,6 +2,15 @@ import subprocess
 import zipfile
 import os
 
+
+for parent, dirs, files in os.walk('ct_addons'):
+    for filename in files:
+        if filename.endswith('.pyc'):
+            filepath = os.path.join(parent, filename)
+            print('removing: ' + filepath)
+            os.remove(filepath)
+
+
 try:
     os.remove('ct_addons.zip')
 except:
