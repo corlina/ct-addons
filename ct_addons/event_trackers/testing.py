@@ -8,7 +8,7 @@ log = logging.getLogger(__name__)
 
 class TestingEventTracker(object):
 
-    EVENT_TYPE = 'testing'
+    EVENT_TYPE = 'MANUAL_TRIGGER'
 
     def __init__(self, client, program):
         self.client = client
@@ -26,8 +26,7 @@ class TestingEventTracker(object):
                     if self._config_state:
                         log.error("daemon in config state, not sending anything")
                         continue
-                self.client.send_event(
-                    self.EVENT_TYPE, {'data': val})
+                self.client.send_event(self.EVENT_TYPE, {'text': val})
             else:
                 raise ValueError("Unknown command: {}".format(cmd))
 
