@@ -112,8 +112,9 @@ class Mpu6050EventTracker(object):
             else:
                 run_server(self._run_server_at_port, self.streamer)
         finally:
-            log.info('interrupted')
+            log.info('interrupted, exiting gracefully...')
             self._stopped.set()
+            self.streamer.request_stop()
             self.streamer.wait_for_end()
 
     def on_config_enabled(self, etype, params):

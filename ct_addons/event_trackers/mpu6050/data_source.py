@@ -10,6 +10,21 @@ log = logging.getLogger(__name__)
 def mpu6050_data_generator(dt, stopped):
     from mpu6050 import mpu6050
     sensor = mpu6050(0x68)
+
+    # try to poll the sensor until it configures properly
+    started_at = time.time()
+    last_err = None
+    while time.time() < started_at + 1:
+        try:
+            sensor.get_all_data()
+        except IOError as err:
+            last_err = err
+            time.sleep(0.02)
+        else:
+            break
+    else:
+        raise IOError('MPU6050 reading fails: {}'.format(str(last_err)))
+
     while not stopped.isSet():
         start = time.time()
         accel = sensor.get_accel_data()
@@ -44,24 +59,29 @@ class DataStreamer(object):
         self._consumers = {}
         self._next_id = 1
         self._lock = threading.Lock()
-        self._stopping = False
+        self._stopped = threading.Event()
         self._generator = generator
         self._thread = threading.Thread(target=self._run)
+        self._thread.setDaemon(True)
         self._thread.start()
 
     def add_consumer(self, function):
         with self._lock:
-            if self._stopping:
+            if self._stopped.isSet():
                 return
             queue = Queue.Queue(maxsize=self.max_queue_size)
             consumer_thread = threading.Thread(target=self._consumer_run,
                                                args=(queue, function))
+            consumer_thread.setDaemon(True)
             consumer_thread.start()
             new_id = self._next_id
             self._next_id += 1
             self._consumers[new_id] = (queue, function, consumer_thread)
         log.info('added new consumer: %r -> %s', function, new_id)
         return new_id
+
+    def request_stop(self):
+        self._stopped.set()
 
     def remove_consumer(self, consumer_id):
         with self._lock:
@@ -79,16 +99,25 @@ class DataStreamer(object):
 
     def wait_for_end(self):
         self._thread.join()
+        with self._lock:
+            consumers = list(self._consumers.values())
+        for q, f, t in consumers:
+            t.join()
 
     def _run(self):
-        for item in self._generator:
-            with self._lock:
-                consumers = list(self._consumers.values())
-            for q, _, _ in consumers:
-                try:
-                    q.put(item, timeout=self.consumer_timeout)
-                except Queue.Full:
-                    pass
+        try:
+            for item in self._generator:
+                if self._stopped.isSet():
+                    break
+                with self._lock:
+                    consumers = list(self._consumers.values())
+                for q, _, _ in consumers:
+                    try:
+                        q.put(item, timeout=self.consumer_timeout)
+                    except Queue.Full:
+                        pass
+        except:
+            log.exception('data generator got an error')
         log.info('data generator finished')
         with self._lock:
             for q, _, _ in self._consumers.values():
@@ -97,7 +126,7 @@ class DataStreamer(object):
                 t.join()
 
     def _consumer_run(self, queue, function):
-        while True:
+        while not self._stopped.isSet():
             item = queue.get()
             if item is None:
                 break
